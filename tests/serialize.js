@@ -30,12 +30,8 @@ describe("Chainable", function() {
     });
   });
 
-  it("Can chain it", function() {
-    expect(C1.add(2).time(2).value(0)).to.be(4);
-    expect(C1.add(2).sum(1, 3, 4).value(0)).to.be(10);
-    expect(C1.add(2).time(2).print().value(0)).to.be("4");
-
-    expect(C2.toArray(2).push(2).push(4).each(v => v * 3).value()).to.eql([6, 6, 12]);
+  it("Can serialize", function () {
+    expect(C1.add(2, 3).time(2).def()).to.be(`[{"name":"add","args":[2,3]},{"name":"time","args":[2]}]`);
   });
 
 });

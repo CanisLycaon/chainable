@@ -1,91 +1,88 @@
 /**
- * Convert any object into a chainable instance, which will support methods belonged to original object to be used as chain methods.
- * 
- * Basically, always pass value along the methods chain as the first parameter, and always return a valid chainable instance for get or function call.
  * 
  */
 
-const chainable = function (obj) {
-  // will return an chainable object
-  const co = {};
-  co._chain = {};
-  co._obj = obj;
+function Chainable(obj, options = {}) {
+  if (!obj) throw new Error("Please provide a valid function library.");
+  const storage = {};
+  storage._obj = obj;
+  storage._opts = options;
 
-  // this is the instance returned when call with chained[prop]
-  let ChainInstance = function (method, value) {
-    let fn = function(...args) {
-      if (fn._value) {
-        fn._value = method.bind(this, fn._value).apply(this, args);
-      } else {
-        fn._value = method.apply(this, args);
+  function ChainInstance(store = function () { }, from) {
+    // return an instance has access to all methods in obj
+    return new Proxy(store, {
+      apply: function (target, thisArg, args) {
+        // return a ChainInstance with previous functions
+        target.fns = target.fns || [];
+        if (from === "get") {
+          target.fns[target.fns.length - 1].thisArg = thisArg;
+          target.fns[target.fns.length - 1].args = args;
+        }
+        return new ChainInstance(target, "call");
+      },
+      get: function (target, name, receiver) {
+        // https://github.com/nodejs/node/issues/10731
+        // be careful about the initial symbol + string call when access the proxy(valueOf, util.inspect.custom, toStringTag)
+        switch (name) {
+          case "value":
+            return function (v) {
+              // now start execute all fns
+              for (let i = 0, len = target.fns.length; i < len; i++) {
+                let fn = target.fns[i];
+                let args = fn.args ? fn.args : [];
+                if (i > 0 || arguments.length !== 0) args.unshift(v);
+                v = fn.fn.apply(fn.thisArg, args);
+              }
+              return v;
+            }
+          case "def":
+            return function () {
+              return JSON.stringify(target.fns.map(fn => {
+                return { name: fn.fn.name, args: fn.args };
+              }));
+            }
+          default:
+            // no support on symbol yet
+            // if (typeof name === "symbol") return;
+
+            // preserved words
+            // if (["inspect", "constructor", "prototype", "valueOf", "toString", "name"].indexOf(name) > -1) return;
+            if (!obj.hasOwnProperty(name)) return receiver;
+
+            let fn = typeof obj[name] === "function" ? obj[name] : function () { return obj[name]; };
+            Object.defineProperty(fn, "name", { writable: true });
+            fn.name = name;
+
+            // return a ChainInstance with previous functions
+            target.fns = target.fns || [];
+            target.fns.push({ fn });
+            target.fn = fn;
+            return new ChainInstance(target, "get");
+        }
       }
-      return fn;
-    }
-
-    if (value) fn._value = value;
-
-    let setPrototypeOf = Object.setPrototypeOf || ({ __proto__: [] } instanceof Array ? function (obj, proto) {
-      obj.__proto__ = proto;
-    } : function (obj, proto) {
-      Object.keys(proto).forEach(name => obj[name] = proto[name]);
     });
+  };
 
-    // the chainable object has all methods defined
-    // so the returned obj still have the access to other methods
-    // handle the value passed along
-    setPrototypeOf(fn, co._chain);
+  // every methods inside of the obj should also be accessible after convert to chainable one
+  return new Proxy(storage, {
+    get: function (target, name) {
+      // https://github.com/nodejs/node/issues/10731
+      // be careful about the initial symbol + string call when access the proxy(valueOf, util.inspect.custom, toStringTag)
+      if (!obj.hasOwnProperty(name)) return new ChainInstance(target);
 
-    // retrieve fn
-    fn.value = function() {
-      return fn._value;
-    };
+      let fn = typeof obj[name] === "function" ? obj[name] : function () { return obj[name]; };
+      Object.defineProperty(fn, "name", { writable: true });
+      fn.name = name;
 
-    return fn;
-  }
+      // return a ChainInstance with previous functions
+      let store = function () { };
+      store.fns = target.fns || [];
+      store.fns.push({ fn });
+      store.fn = fn;
 
-  // preserved method names
-  co.register = function (name, fn) {
-    if (typeof name === "object") {
-      Object.keys(name).forEach(n => co.register(n, name[n]));
-    } else if (typeof name === "string" && typeof fn === "function") {
-      // attach a method with same name to this
-      // preserve the parameter
-      Object.defineProperty(co, name, {
-        get() {
-          // should return a new instance
-          // and the instance need to have access to all other methods -> prototype
-          return new ChainInstance(fn);
-        }
-      });
-
-      Object.defineProperty(co._chain, name, {
-        get() {
-          // should return a new instance
-          // and the instance need to have access to all other methods -> prototype
-          return new ChainInstance(fn, this._value);
-        }
-      });
+      return new ChainInstance(store, "get");
     }
-  }
-
-  // make every property a method
-  for (let prop in obj) {
-    if (!obj.hasOwnProperty(prop)) continue;
-
-    let method = obj[prop];
-
-    // convert properties into functions that return the property value
-    if (typeof method !== "function") {
-      method = function () {
-        return obj[prop];
-      }
-    }
-
-    co.register(prop, method);
-  }
-
-  // finally return
-  return co;
+  });
 }
 
-module.exports = chainable;
+module.exports = Chainable;
