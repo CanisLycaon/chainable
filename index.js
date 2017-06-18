@@ -44,6 +44,11 @@ function Chainable(obj, options = {}) {
               return v;
             };
 
+          // case "toString":
+          // case "valueOf":
+          case Symbol.toPrimitive:
+            return function() { return receiver.serialize(); };
+
           // return the function
           case "_origin":
             return target.origin;
@@ -69,6 +74,10 @@ function Chainable(obj, options = {}) {
           default:
             let obj = storage._obj;
             if (typeof obj[name] === "undefined") return receiver;
+
+            // handle some special access
+            if (name == "constructor") return receiver;
+
             let fn = typeof obj[name] === "function" ? obj[name] : function () { return obj[name]; };
             Object.defineProperty(fn, "name", { writable: true });
             fn.name = name;
